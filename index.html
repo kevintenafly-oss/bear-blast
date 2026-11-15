@@ -185,8 +185,9 @@ canvas{display:block;width:100%;height:auto;aspect-ratio:15/11;border-radius:16p
     <li>Walk with the arrow keys, WASD, the pad, or by tapping a spot. Walking is free.</li>
     <li>Face a hedge and drop a bomb. Tap a hedge once to aim, tap it again to blast it. Stone walls never break.</li>
     <li>Tough hedges show dots for their strength. A bomb takes off as many dots as its damage, so upgrade your bomb power in the shop.</li>
+    <li>Orange bomb pickups on the map refill one bomb each, up to your bag size. The bomb bag upgrade goes up to 12.</li>
     <li>You hold a limited number of bombs. When they run out, each new bomb costs 15 coins. Beat a garden for coins, plus 10 for every bomb you did not use.</li>
-    <li>Garden moles wait along the way to the goal. If one touches you, you lose a heart. From level 4 they throw small bombs, and from level 9 they swing whips that reach 2 squares. Red or orange marks show where the next hit lands. Walls and hedges block them, and blowing a mole up pays bonus coins.</li>
+    <li>Garden moles wait along the way to the goal. If one touches you, you lose a heart. From level 4 they throw small bombs, and from level 9 they swing whips that reach 2 squares. Red or orange marks show where the next hit lands. Walls and hedges block them. One bomb takes out a mole (two bombs from level 13) and pays bonus coins. Mole bombs and whips hurt other moles too, so lure them into each other.</li>
     <li>Level 25 has a robot boss. Its bombs also blast 4 spaces and it needs 1.2 seconds to wind up every attack, so watch the warning. Its fist flies down a line, costs 2 hearts and makes the floor it crosses vanish for a few seconds.</li>
     <li>Level 10 has a ninja boss guarding the portal. His bombs blast 4 spaces in a line, but stone walls and hedges stop the blast. Hide behind them.</li>
   </ul>
@@ -225,11 +226,11 @@ const DIRMAP={u:[0,-1],d:[0,1],l:[-1,0],r:[1,0]};
 const KEYDIR={ArrowUp:'u',KeyW:'u',ArrowDown:'d',KeyS:'d',ArrowLeft:'l',KeyA:'l',ArrowRight:'r',KeyD:'r'};
 const FUSE_MS=900, STEP_MS=125, HINT_MS=6000, TONIC_GAIN=3, COIN_PER_BOMB=10;
 const BOMB_PRICE=15, TONIC_PRICE=20, BOSS_BONUS=120;
-const POWER_PRICES=[40,90,150], BAG_PRICES=[35,55,80,110,150];
-const MIN_BAG=3, MAX_BAG=8, MAX_POWER=3, MIN_ENERGY=5, MAX_ENERGY=9;
+const POWER_PRICES=[40,90,150], BAG_PRICES=[35,55,80,110,150,200,260,330,410];
+const MIN_BAG=3, MAX_BAG=12, MAX_POWER=3, MIN_ENERGY=5, MAX_ENERGY=9;
 const MOLE_STEP=620;
 const ROBOT={hp:36,idle:1900,wind:1200,flight:500,fuse:1500,vanish:650,range:4,fist:2,pit:4200,flicker:900,hearts:5,fistMs:320};
-const BOSS_BONUS_ROBOT=200;
+const BOSS_BONUS_ROBOT=200, BOMB_RESPAWN=12000;
 const BOSS={hp:20,idle:2000,wind:800,flight:450,fuse:1500,vanish:700,range:4,hearts:3,invuln:1600,respawn:9000};
 const bonusFor=n=>20+3*(n-1);
 const batteryPrice=e=>40+20*(e-MIN_ENERGY);
@@ -334,7 +335,7 @@ function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h
 function circ(x,y,r){ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);}
 
 /* ---------- game state ---------- */
-let T,hp,hpMax,hitAt,scorch,pk,art,start,goal,TH=THEMES[0],cur=1;
+let T,hp,hpMax,hitAt,scorch,pk,pb,art,start,goal,TH=THEMES[0],cur=1;
 let moles=[];
 let bossLevel=false,boss=null,ninjaBombs=[],blastFx=[],respawns=[];
 let hearts=BOSS.hearts,maxHearts=BOSS.hearts,invulnUntil=0,paused=false,shopMode=null;
@@ -357,10 +358,10 @@ function loadLevel(n){
   cur=Math.min(Math.max(1,Math.floor(n)||1),LEVELS.length);
   const L=LEVELS[cur-1], MAP=L.map;
   TH=THEMES[L.theme]; bossLevel=!!L.boss;
-  T=[];hp=[];hpMax=[];hitAt={};scorch=[];pk=[];art=[];
+  T=[];hp=[];hpMax=[];hitAt={};scorch=[];pk=[];pb=[];art=[];
   const spots=[];
   for(let y=0;y<ROWS;y++){
-    T.push([]);hp.push([]);hpMax.push([]);scorch.push([]);pk.push([]);art.push([]);
+    T.push([]);hp.push([]);hpMax.push([]);scorch.push([]);pk.push([]);pb.push([]);art.push([]);
     for(let x=0;x<COLS;x++){
       const ch=MAP[y][x];
       let h=0;
@@ -370,7 +371,7 @@ function loadLevel(n){
       if(ch==='S') start={x:x,y:y};
       if(ch==='G') goal={x:x,y:y};
       if(ch==='B') spots.push([x,y]);
-      pk[y][x]=ch==='E';
+      pk[y][x]=ch==='E'; pb[y][x]=false;
       scorch[y][x]=false;
       art[y].push(makeArt(x,y));
     }
@@ -386,6 +387,7 @@ function loadLevel(n){
   const kind=L.kind||'ninja', bhp=kind==='robot'?ROBOT.hp:BOSS.hp;
   if(bossLevel&&spots.length) boss={kind:kind,atk:null,dir:[1,0],x:spots[0][0],y:spots[0][1],hp:bhp,max:bhp,phase:'idle',t0:now+800,target:null,dest:null,alive:true,spots:spots,hitAt:-9999};
   maxHearts=(boss&&boss.kind==='robot')?ROBOT.hearts:BOSS.hearts; hearts=maxHearts;
+  placeBombPickups(spots);
   if(!bossLevel) spawnMoles();
   const r=route(start.x,start.y);
   minNeed=r?r.hedges:0;
@@ -441,6 +443,19 @@ function pathTo(bf,x,y,sx,sy){
   while(c!==s){ out.push([c%COLS,Math.floor(c/COLS)]); c=bf.prev[c]; }
   return out.reverse();
 }
+/* bomb refills lie on the map. 1 on levels 2-9, 2 from level 11, 3 (that come back) on the boss levels */
+const bombPickupCount=n=>LEVELS[n-1].boss?3:(n<=1?0:(n<=9?1:2));
+function placeBombPickups(spots){
+  const n=bombPickupCount(cur); if(!n) return;
+  const R=mulberry32(cur*7331+5), bf=bfs(start.x,start.y), pool=[];
+  const isSpot=(x,y)=>spots.some(s=>s[0]===x&&s[1]===y);
+  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+    if(T[y][x]!=='.'||pk[y][x]||bf.dist[y][x]<3||(x===goal.x&&y===goal.y)||isSpot(x,y)) continue;
+    pool.push([x,y]);
+  }
+  for(let i=0;i<n&&pool.length;i++){ const c=pool.splice(Math.floor(R()*pool.length),1)[0]; pb[c[1]][c[0]]=true; }
+}
+function countBombPickups(){ let n=0; for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(pb[y][x]) n++; return n; }
 function countPickups(){ let n=0; for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(pk[y][x]) n++; return n; }
 /* cells a blast reaches. block=true: stone walls AND hedges stop it (the ninja's blast). */
 function cross(cx,cy,range,block){
@@ -522,6 +537,15 @@ function arrive(){
       if(bossLevel) respawns.push({x:x,y:y,at:now+BOSS.respawn});
     }else{
       toast('Energy is full. Come back for this bolt after you use some.');
+    }
+  }
+  if(pb[y][x]){
+    if(bombs<save.bag){
+      pb[y][x]=false; bombs++; updateHud(); sfx.pick();
+      floater(x*CS+CS/2,y*CS+10,'+1 bomb','#ff9a4a');
+      if(bossLevel) respawns.push({x:x,y:y,at:now+BOMB_RESPAWN,kind:'b'});
+    }else{
+      toast('Your bomb bag is full. Come back for this one after you use a bomb.');
     }
   }
   if(x===goal.x&&y===goal.y){
@@ -663,7 +687,7 @@ function checkStuck(){
   const r=route(pl.mv?pl.mv.toX:pl.x, pl.mv?pl.mv.toY:pl.y);
   if(!r||r.hedges===0) return;
   const buyable=Math.floor(save.coins/BOMB_PRICE);
-  if(bombs+buyable<r.hedges){
+  if(bombs+buyable+countBombPickups()<r.hedges){
     showStuck('From here you need '+r.hedges+' bomb'+(r.hedges===1?'':'s')+' to reach the goal, but you have '+bombs+' and only '+save.coins+' coins. Tough hedges need more damage, so bomb upgrades help.');
     return;
   }
@@ -813,6 +837,11 @@ function explodeNinja(nb){
       parts.push({k:'spark',x:c[0]*CS+CS/2,y:c[1]*CS+CS/2,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:0,max:.3+Math.random()*.4,g:120,c:['#ffd23f','#ff7a2f','#ff4d3a'][Math.floor(Math.random()*3)]});
     }
   }
+  for(const m of moles){
+    if(!m.alive) continue;
+    const mc=moleCellOf(m);
+    if(cells.some(c=>c[0]===mc[0]&&c[1]===mc[1])) hitMole(m,1);
+  }
   const p=playerCell();
   if(cells.some(c=>c[0]===p[0]&&c[1]===p[1])) hurtPlayer();
 }
@@ -830,7 +859,7 @@ function hurtPlayer(n){
 }
 
 /* ---------- garden moles: enemies placed on the way to the goal, armed as the levels go on ---------- */
-const moleHp=n=>Math.min(5,1+Math.floor((n-1)/3));
+const moleHp=n=>n<13?1:2;   /* one bomb (or one enemy attack) kills early moles, two bombs from level 13 */
 const enemyCount=n=>n<=4?1:(n<16?2:3);
 /* levels 1-3: claws only. 4-8: bomb throwers. 9+: two-square whips. 12+: every second mole throws bombs. */
 function weaponFor(n,i){ if(n<4) return 'none'; if(n<9) return 'bomb'; if(n>=12&&i%2===1) return 'bomb'; return 'whip'; }
@@ -842,7 +871,7 @@ function makeMole(x,y,i){
 function spawnMoles(){
   moles=[];
   const r=route(start.x,start.y);
-  let cells=r?r.path.filter((c,i)=>i>=5&&T[c[1]][c[0]]==='.'&&!pk[c[1]][c[0]]&&!(c[0]===goal.x&&c[1]===goal.y)):[];
+  let cells=r?r.path.filter((c,i)=>i>=5&&T[c[1]][c[0]]==='.'&&!pk[c[1]][c[0]]&&!pb[c[1]][c[0]]&&!(c[0]===goal.x&&c[1]===goal.y)):[];
   const n=Math.min(enemyCount(cur),cells.length);
   const used={};
   for(let i=0;i<n;i++){
@@ -854,7 +883,7 @@ function spawnMoles(){
   }
   if(!moles.length){
     const pool=[];
-    for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(T[y][x]==='.'&&!pk[y][x]&&Math.abs(x-start.x)+Math.abs(y-start.y)>=4&&!(x===goal.x&&y===goal.y)) pool.push([x,y]);
+    for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++) if(T[y][x]==='.'&&!pk[y][x]&&!pb[y][x]&&Math.abs(x-start.x)+Math.abs(y-start.y)>=4&&!(x===goal.x&&y===goal.y)) pool.push([x,y]);
     if(pool.length){ const c=pool[Math.floor(Math.random()*pool.length)]; moles.push(makeMole(c[0],c[1],0)); }
   }
 }
@@ -897,6 +926,11 @@ function moleStep(m){
       }else{
         m.cells=whipCells(mc[0],mc[1],m.dir); m.act='lash'; m.at=now; sfx.boom&&tone(240,.12,'sawtooth',.05,-120);
         const p=playerCell();
+        for(const o of moles){
+          if(o===m||!o.alive) continue;
+          const oc=moleCellOf(o);
+          if(m.cells.some(c=>c[0]===oc[0]&&c[1]===oc[1])) hitMole(o,1);
+        }
         if(m.cells.some(c=>c[0]===p[0]&&c[1]===p[1])) hurtPlayer();
       }
     }
@@ -940,9 +974,9 @@ function moleUpdate(){
   bombsUpdate();
 }
 function hitMole(m,d){
-  m.hp-=d; m.hitAt=now; m.act=null; m.cells=null; m.cd=Math.max(m.cd,now+900);
+  m.hp-=1; m.hitAt=now; m.act=null; m.cells=null; m.cd=Math.max(m.cd,now+900);
   const mc=moleCellOf(m);
-  floater(mc[0]*CS+CS/2,mc[1]*CS+4,'-'+d,'#ffffff');
+  floater(mc[0]*CS+CS/2,mc[1]*CS+4,'-1','#ffffff');
   if(m.hp>0){ leafBurst(mc[0],mc[1],6); return; }
   m.alive=false;
   save.coins+=m.reward; persist(); updateHud();
@@ -1079,7 +1113,7 @@ function update(dt){
   if(bossLevel&&state==='play') bossUpdate();
   if(!bossLevel&&state==='play') moleUpdate();
   for(let i=respawns.length-1;i>=0;i--){
-    if(now>=respawns[i].at){ pk[respawns[i].y][respawns[i].x]=true; respawns.splice(i,1); }
+    if(now>=respawns[i].at){ if(respawns[i].kind==='b') pb[respawns[i].y][respawns[i].x]=true; else pk[respawns[i].y][respawns[i].x]=true; respawns.splice(i,1); }
   }
   for(let i=parts.length-1;i>=0;i--){
     const p=parts[i];
@@ -1199,6 +1233,16 @@ function drawPortal(px,py){
 function drawStart(px,py){
   circ(px+24,py+24,18); ctx.fillStyle='rgba(60,40,20,.1)'; ctx.fill();
   ctx.strokeStyle='rgba(60,40,20,.25)'; ctx.lineWidth=2; ctx.stroke();
+}
+function drawBombPickup(px,py,x){
+  const cx=px+CS/2, cy=py+CS/2+(reduce?0:Math.sin(now/260+x*1.7)*2.2);
+  const g=ctx.createRadialGradient(cx,cy,2,cx,cy,22);
+  g.addColorStop(0,'rgba(255,122,47,.5)'); g.addColorStop(1,'rgba(255,122,47,0)');
+  ctx.fillStyle=g; ctx.fillRect(px,py,CS,CS);
+  circ(cx,cy,12); ctx.fillStyle='#2a1708'; ctx.fill(); ctx.strokeStyle='#ff7a2f'; ctx.lineWidth=2; ctx.stroke();
+  circ(cx-1,cy+2,6); ctx.fillStyle='#f1f1ec'; ctx.fill();
+  ctx.strokeStyle='#ffb36b'; ctx.lineWidth=1.8; ctx.lineCap='round'; ctx.beginPath(); ctx.moveTo(cx+2,cy-3); ctx.quadraticCurveTo(cx+6,cy-8,cx+8,cy-6); ctx.stroke(); ctx.lineCap='butt';
+  ctx.fillStyle='#ffd23f'; circ(cx+8,cy-6,1.8); ctx.fill();
 }
 function drawPickup(px,py,x){
   const cx=px+CS/2, cy=py+CS/2+(reduce?0:Math.sin(now/280+x)*2.2);
@@ -1556,6 +1600,7 @@ function draw(){
       if(x===start.x&&y===start.y) drawStart(px,py);
       if(x===goal.x&&y===goal.y){ if(bossLevel) drawPortal(px,py); else drawGoal(px,py); }
       if(pk[y][x]) drawPickup(px,py,x);
+      if(pb[y][x]) drawBombPickup(px,py,x);
     }
   }
   drawHint();
