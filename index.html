@@ -186,6 +186,7 @@ canvas{display:block;width:100%;height:auto;aspect-ratio:15/11;border-radius:16p
   <ul class="rules">
     <li>Walk with the arrow keys, WASD, the pad, or by tapping a spot. Walking is free.</li>
     <li>Face a hedge and drop a bomb. Tap a hedge once to aim, tap it again to blast it. Stone walls never break.</li>
+    <li>Every prime-numbered bomb power upgrade (2nd, 3rd, 5th, 7th) also makes the blast reach 1 more square. Longer blasts hit moles and bosses farther away, and the moles' own bombs grow with your power too, up to 3 squares.</li>
     <li>Tough hedges show dots for their strength. A bomb takes off as many dots as its damage, so upgrade your bomb power in the shop.</li>
     <li>Orange bomb pickups on the map refill one bomb each, up to your bag size. The bomb bag upgrade goes up to 12.</li>
     <li>You hold a limited number of bombs. When they run out, each new bomb costs 15 coins. Beat a garden for coins, plus 10 for every bomb you did not use.</li>
@@ -228,8 +229,9 @@ const DIRMAP={u:[0,-1],d:[0,1],l:[-1,0],r:[1,0]};
 const KEYDIR={ArrowUp:'u',KeyW:'u',ArrowDown:'d',KeyS:'d',ArrowLeft:'l',KeyA:'l',ArrowRight:'r',KeyD:'r'};
 const FUSE_MS=900, STEP_MS=125, HINT_MS=6000, TONIC_GAIN=3, COIN_PER_BOMB=10;
 const BOMB_PRICE=15, TONIC_PRICE=20, BOSS_BONUS=120;
-const POWER_PRICES=[40,90,150], BAG_PRICES=[35,55,80,110,150,200,260,330,410];
-const MIN_BAG=3, MAX_BAG=12, MAX_POWER=3, MIN_ENERGY=5, MAX_ENERGY=9;
+const POWER_PRICES=[40,90,150,220,300,390,490,600], BAG_PRICES=[20,25,30,35,40,45,50,55,60];
+const MIN_BAG=3, MAX_BAG=12, MAX_POWER=8, MIN_ENERGY=5, MAX_ENERGY=9;
+const HEART_PRICES=[50,80,120,170,230], MAX_HEART_UP=5;
 const MOLE_STEP=620;
 const ROBOT={hp:36,idle:1900,wind:1200,flight:500,fuse:1500,vanish:650,range:4,fist:2,pit:4200,flicker:900,hearts:5,fistMs:320};
 const BOSS_BONUS_ROBOT=200, BOMB_RESPAWN=12000;
@@ -258,7 +260,7 @@ const canvas=$('board'), ctx=canvas.getContext('2d');
 
 /* ---------- saved progress ---------- */
 const KEY='bear-blast-v2';
-const DEF={coins:0,level:1,maxEnergy:MIN_ENERGY,tonics:0,bag:MIN_BAG,power:0,muted:false};
+const DEF={coins:0,level:1,maxEnergy:MIN_ENERGY,tonics:0,bag:MIN_BAG,power:0,heartUp:0,muted:false};
 const save=Object.assign({},DEF);
 try{
   const raw=localStorage.getItem(KEY);
@@ -274,8 +276,16 @@ save.level=Math.min(Math.max(1,save.level),LEVELS.length+1);
 save.maxEnergy=Math.min(MAX_ENERGY,Math.max(MIN_ENERGY,save.maxEnergy));
 save.bag=Math.min(MAX_BAG,Math.max(MIN_BAG,save.bag));
 save.power=Math.min(MAX_POWER,save.power);
+save.heartUp=Math.min(MAX_HEART_UP,save.heartUp);
 function persist(){ try{ localStorage.setItem(KEY,JSON.stringify(save)); }catch(e){} }
 const dmg=()=>1+save.power;
+/* every PRIME-numbered bomb power upgrade (2nd, 3rd, 5th, 7th...) makes the blast reach 1 more square */
+const isPrime=n=>{ if(n<2) return false; for(let i=2;i*i<=n;i++) if(n%i===0) return false; return true; };
+const blastBonus=p=>{ let c=0; for(let i=2;i<=p;i++) if(isPrime(i)) c++; return c; };
+const blastR=p=>1+blastBonus(p==null?save.power:p);
+const dmgOf=p=>1+(p==null?save.power:p);
+const ENEMY_BLAST_MAX=3;   /* enemy bombs grow with your bomb power too, but stay weaker than the bosses (range 4) */
+const enemyBlastR=()=>Math.min(ENEMY_BLAST_MAX,blastR());
 
 /* ---------- sound ---------- */
 let ac=null;
@@ -383,12 +393,12 @@ function loadLevel(n){
   bombs=save.bag; placed=0; bought=0;
   fuses=[];parts=[];rings=[];flashes=[];floaters=[];ninjaBombs=[];blastFx=[];respawns=[];holes={};fists=[];
   hint=null;walkPath=[];walkFace=null;queuedDir=null;dirStack=[];
-  hearts=BOSS.hearts; invulnUntil=0; paused=false; shopMode=null;
+  hearts=BOSS.hearts+save.heartUp; invulnUntil=0; paused=false; shopMode=null;
   state='play';
   boss=null; moles=[];
   const kind=L.kind||'ninja', bhp=kind==='robot'?ROBOT.hp:BOSS.hp;
   if(bossLevel&&spots.length) boss={kind:kind,atk:null,dir:[1,0],x:spots[0][0],y:spots[0][1],hp:bhp,max:bhp,phase:'idle',t0:now+800,target:null,dest:null,alive:true,spots:spots,hitAt:-9999};
-  maxHearts=(boss&&boss.kind==='robot')?ROBOT.hearts:BOSS.hearts; hearts=maxHearts;
+  maxHearts=((boss&&boss.kind==='robot')?ROBOT.hearts:BOSS.hearts)+save.heartUp; hearts=maxHearts;
   placeBombPickups(spots);
   if(!bossLevel) spawnMoles();
   const r=route(start.x,start.y);
@@ -500,7 +510,7 @@ function updateHud(){
   $('energyNum').textContent=energy+'/'+save.maxEnergy;
   $('energyStat').setAttribute('aria-label','Energy '+energy+' of '+save.maxEnergy);
   $('bombNum').textContent=bombs+'/'+save.bag;
-  $('dmgNum').textContent='dmg '+dmg();
+  $('dmgNum').textContent='dmg '+dmg()+' · reach '+blastR();
   $('bombSmall').textContent=bombs>0?'1 energy + 1 bomb':'1 energy + '+BOMB_PRICE+' coins';
   $('coinNum').textContent=save.coins;
   $('tonicSmall').textContent='+'+TONIC_GAIN+' energy · '+save.tonics+' left';
@@ -651,10 +661,12 @@ function restart(){ if(state==='play'&&!paused) loadLevel(cur); }
 
 /* ---------- blasts, hedges ---------- */
 function blast(b){
-  const d=dmg();
-  const cells=bossLevel?cross(b.x,b.y,1,false):[[b.x,b.y]];
+  const d=dmgOf(b.power), R=blastR(b.power);
+  const cells=bossLevel?cross(b.x,b.y,R,false):[[b.x,b.y]];
   explosionFx(b.x,b.y,b.power); sfx.boom();
   scorch[b.y][b.x]=true;
+  const reach=cross(b.x,b.y,R,true);
+  if(R>1) blastFx.push({cells:reach,t0:now});
   let bossHit=false;
   for(const c of cells){
     const x=c[0], y=c[1];
@@ -662,11 +674,10 @@ function blast(b){
     if(bossBlocks(x,y)) bossHit=true;
   }
   if(bossHit) hitBoss(d);
-  const bc=cross(b.x,b.y,1,false);
   for(const m of moles){
     if(!m.alive) continue;
     const mc=moleCellOf(m);
-    if(bc.some(c=>c[0]===mc[0]&&c[1]===mc[1])) hitMole(m,d);
+    if(reach.some(c=>c[0]===mc[0]&&c[1]===mc[1])) hitMole(m,d);
   }
   checkStuck();
 }
@@ -923,7 +934,7 @@ function moleStep(m){
     if(now-m.at>=t){
       const mc=moleCellOf(m);
       if(m.weapon==='bomb'){
-        ninjaBombs.push({sx:mc[0],sy:mc[1],x:m.aim[0],y:m.aim[1],t0:now,landed:false,lt:0,range:1,fuse:EN.fuse,flight:EN.flight,small:true});
+        ninjaBombs.push({sx:mc[0],sy:mc[1],x:m.aim[0],y:m.aim[1],t0:now,landed:false,lt:0,range:enemyBlastR(),fuse:EN.fuse,flight:EN.flight,small:true});
         m.act=null; m.cd=now+EN.bombCd; m.t0=now+350;
       }else{
         m.cells=whipCells(mc[0],mc[1],m.dir); m.act='lash'; m.at=now; sfx.boom&&tone(240,.12,'sawtooth',.05,-120);
@@ -1023,11 +1034,12 @@ function showClear(info){
 
 /* ---------- shop ---------- */
 function shopItems(){
-  const po=save.power<MAX_POWER, ba=save.bag<MAX_BAG, en=save.maxEnergy<MAX_ENERGY;
+  const po=save.power<MAX_POWER, ba=save.bag<MAX_BAG, en=save.maxEnergy<MAX_ENERGY, he=save.heartUp<MAX_HEART_UP;
   return [
-    {id:'power',name:'Bomb power',desc:'Bombs take off '+dmg()+(po?' → '+(dmg()+1):'')+' hedge dot'+(dmg()===1&&!po?'':'s')+' per hit. Tough hedges need it.',price:po?POWER_PRICES[save.power]:0,ok:po},
+    {id:'power',name:'Bomb power '+save.power+(po?' → '+(save.power+1):''),desc:'Damage '+dmg()+(po?' → '+(dmg()+1):'')+'. Blast reaches '+blastR()+' square'+(blastR()===1?'':'s')+(po&&isPrime(save.power+1)?' → '+(blastR()+1)+' (prime upgrade!)':'')+'. Tough hedges need damage.',price:po?POWER_PRICES[save.power]:0,ok:po},
     {id:'bag',name:'Bigger bomb bag',desc:'Hold and start every level with '+save.bag+(ba?' → '+(save.bag+1):'')+' bombs.',price:ba?BAG_PRICES[save.bag-MIN_BAG]:0,ok:ba},
     {id:'battery',name:'Bigger battery',desc:'Max energy '+save.maxEnergy+(en?' → '+(save.maxEnergy+1):'')+'. Every bomb costs 1.',price:en?batteryPrice(save.maxEnergy):0,ok:en},
+    {id:'heart',name:'Permanent heart '+save.heartUp+(he?' → '+(save.heartUp+1):''),desc:'+1 heart on every level, for good. Hearts now: '+(BOSS.hearts+save.heartUp)+(he?' → '+(BOSS.hearts+save.heartUp+1):'')+' (robot fight: '+(ROBOT.hearts+save.heartUp)+').',price:he?HEART_PRICES[save.heartUp]:0,ok:he},
     {id:'tonic',name:'Energy tonic',desc:'Restores '+TONIC_GAIN+' energy during a level. You have '+save.tonics+'.',price:TONIC_PRICE,ok:true}
   ];
 }
@@ -1046,6 +1058,7 @@ function buy(id){
   if(id==='power') save.power++;
   if(id==='bag'){ save.bag++; if(shopMode==='menu') bombs=Math.min(save.bag,bombs+1); }
   if(id==='battery'){ save.maxEnergy++; if(shopMode==='menu') energy=Math.min(save.maxEnergy,energy+1); }
+  if(id==='heart'){ save.heartUp++; if(shopMode==='menu'){ maxHearts++; hearts++; } }
   if(id==='tonic') save.tonics++;
   persist(); sfx.coin(); updateHud(); renderShop();
   const again=$('shopGrid').querySelector('[data-id="'+id+'"]');
