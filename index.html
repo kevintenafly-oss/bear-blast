@@ -141,6 +141,7 @@ canvas{display:block;width:100%;height:auto;aspect-ratio:15/11;border-radius:16p
         <span id="coinNum">0</span>
       </div>
       <button class="stat" id="shopBtn" type="button">Shop</button>
+      <button class="stat" id="modeBtn" type="button" aria-label="Difficulty">Easy</button>
       <button class="stat" id="soundBtn" type="button" aria-pressed="false" aria-label="Sound on">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use id="soundUse" href="#i-sound"/></svg>
       </button>
@@ -190,8 +191,10 @@ canvas{display:block;width:100%;height:auto;aspect-ratio:15/11;border-radius:16p
     <li>Tough hedges show dots for their strength. A bomb takes off as many dots as its damage, so upgrade your bomb power in the shop.</li>
     <li>Orange bomb pickups on the map refill one bomb each, up to your bag size. The bomb bag upgrade goes up to 12.</li>
     <li>You hold a limited number of bombs. When they run out, each new bomb costs 15 coins. Beat a garden for coins, plus 10 for every bomb you did not use.</li>
-    <li>Garden moles wait along the way to the goal. If one touches you, you lose a heart. From level 4 they throw small bombs, and from level 9 they swing whips that reach 2 squares. Red or orange marks show where the next hit lands. Walls and hedges block them. One bomb takes out a mole (two bombs from level 13) and pays bonus coins. Mole bombs and whips hurt other moles too, so lure them into each other.</li>
-    <li>Level 25 has a robot boss. Its bombs also blast 4 spaces and it needs 1.2 seconds to wind up every attack, so watch the warning. Its fist flies down a line, costs 2 hearts and makes the floor it crosses vanish for a few seconds.</li>
+    <li>Garden moles wait along the way to the goal. If one touches you, you lose a heart. From level 4 they throw small bombs, and from level 9 they swing whips. Red or orange marks show where the next hit lands. Walls and hedges block them. Mole bombs and whips hurt other moles too, so lure them into each other.</li>
+    <li>The Easy / Hard button switches the difficulty and restarts the level. <b>Easy:</b> moles move slower, attack less often, have one bomb of health, their bombs stay small and whips stay 2 squares. <b>Hard:</b> moles are faster, take two bombs from level 13, their bombs grow with your bomb power (up to 3 squares) and their whips grow from 2 to 3 to 4 squares as the levels go on.</li>
+    <li>Level 20 has a robot boss. Its bombs blast 4 spaces and it needs 1.2 seconds to wind up every attack, so watch the warning. Its fist flies down a line, costs 2 hearts and makes the floor it crosses vanish for a few seconds.</li>
+    <li>Level 25 is the Mech Ninja. It teleports around the arena, throws 5-space bombs that cost 2 hearts, punches a 3-wide fist for 3 hearts and shakes whole patches of floor away. It has far more health, so bring your best bomb power.</li>
     <li>Level 10 has a ninja boss guarding the portal. His bombs blast 4 spaces in a line, but stone walls and hedges stop the blast. Hide behind them.</li>
   </ul>
   <p class="fine">Progress saves in this browser. <button class="link" id="resetBtn" type="button">Reset progress</button></p>
@@ -233,15 +236,22 @@ const POWER_PRICES=[40,90,150,220,300,390,490,600], BAG_PRICES=[20,25,30,35,40,4
 const MIN_BAG=3, MAX_BAG=12, MAX_POWER=8, MIN_ENERGY=5, MAX_ENERGY=9;
 const HEART_PRICES=[50,80,120,170,230], MAX_HEART_UP=5;
 const MOLE_STEP=620;
+const moleStepMs=()=>save.easy?Math.round(MOLE_STEP*1.25):MOLE_STEP;
+const cdMul=()=>save.easy?1.8:1, windMul=()=>save.easy?1.3:1;
+/* hard mode: whips grow from 2 to 3 to 4 squares as the gardens go on. easy mode keeps them at 2. */
+const whipLen=()=>save.easy?2:(cur<14?2:(cur<19?3:4));
 const ROBOT={hp:36,idle:1900,wind:1200,flight:500,fuse:1500,vanish:650,range:4,fist:2,pit:4200,flicker:900,hearts:5,fistMs:320};
-const BOSS_BONUS_ROBOT=200, BOMB_RESPAWN=12000;
+const MECH={hp:60,idle:1300,wind:1000,flight:450,fuse:1300,vanish:380,range:5,fist:3,bombDmg:2,pit:5400,flicker:900,hearts:6,fistMs:280,after:500,quake:9};
+const BOSS_BONUS_ROBOT=200, BOSS_BONUS_MECH=320, BOMB_RESPAWN=12000;
+const cfg=()=>boss&&boss.kind==='mech'?MECH:ROBOT;
+const bigBoss=()=>!!boss&&(boss.kind==='robot'||boss.kind==='mech');
 const BOSS={hp:20,idle:2000,wind:800,flight:450,fuse:1500,vanish:700,range:4,hearts:3,invuln:1600,respawn:9000};
 const bonusFor=n=>20+3*(n-1);
 const batteryPrice=e=>40+20*(e-MIN_ENERGY);
 
 /* 15 gardens, one per level. Legend: # stone (permanent), H hedge (1 strength), 2 and 3 tougher hedges,
    S start, G goal, E energy bolt, B boss spawn spot, . path */
-const LEVELS=[{"name":"Front Garden","theme":0,"map":["###############","#S....H.......#","#.###.#.#####.#","#.#...#.#.E.#.#","#.#.###.#.#.#.#","#...#...H.#...#","###.#.###.#####","#...#...#...E.#","#.#####.#####H#","#..E....H...G.#","###############"]},{"name":"Rose Walk","theme":0,"map":["###############","#G#...#...#...#","#.#.#.#.#.###.#","#...#...#H..#.#","###H#######.#.#","#.....#..H.H#.#","#.###.#H#####.#","#.#.#..E#...H.#","#.#.###H#####.#","#............S#","###############"]},{"name":"Herb Patch","theme":0,"map":["###############","#G#......E..#S#","#.#####.#H#.H.#","#...#.H.#H#...#","###.H.###.###.#","#..H#.#.....HH#","#H###H#.#####H#","#.#...#.#H....#","#.##H.#.#.###.#","#.....#...#...#","###############"]},{"name":"Orchard Rows","theme":1,"map":["###############","#S..#..H......#","###.H.#######H#","#.#.#.#H....#.#","#.#E#.#.###.#.#","#.#.#.#..H#.#.#","#.#.#.#.#.#.#.#","#H#.#.#.#.#G#.#","#.#.#.#.#.###.#","#.....H.#..H.H#","###############"]},{"name":"Pumpkin Patch","theme":1,"map":["###############","#G..#.#......S#","##H.#.#.#.##H.#","#H..#.#.#.H...#","#.###.#.#H###.#","#.#.E.#.#...#H#","#.#H#.#.###.#.#","#.#.#.....#H#.#","#.###H#####.H.#","#..H......H.HH#","###############"]},{"name":"Apple Lane","theme":1,"map":["###############","#G#.....H....S#","#.#.###.#####.#","#.#...#...#.#.#","#.#2#.###2#.#.#","#.H.#.#...H...#","#H#.###H###.###","#...#H..#E..H.#","#H###.#2#.###.#","#....H#....H..#","###############"]},{"name":"Frosty Lawn","theme":2,"map":["###############","#.#.....#.H...#","#.#2###.H.###H#","#.H...2.#.#...#","#.#.#.#.###.#.#","#E#.#H#....H#.#","#.###.#######.#","#.#HH.#G#...#.#","#.#.###.#.#.#.#","#S..#.....#..2#","###############"]},{"name":"Snow Maze","theme":2,"map":["###############","#.#...E......S#","#2#.#########.#","#.#.#.#...H.#.#","#.#.2.#.###.#.#","#...#...#.#H#.#","#####.###.#2#H#","#...2.#...#...#","#.H##H#.#.#####","#.H.2..2#.2..G#","###############"]},{"name":"Ice Garden","theme":2,"map":["###############","#G2.....#....2#","#.#.H.#.#.###.#","#H#H#2#.#.#.#.#","#H###H#.#.#.#.#","#.#H..#.#.#.#.#","#.#.###.#.#H#.#","#.H.#.#..2#.#2#","#####.#####.#.#","#S..........E.#","###############"]},{"name":"Ninja Dojo","theme":5,"map":["###############","#..........B.G#","#.##.......##.#","#...B..2....B.#","#.....###.....#","#.E....2....E.#","#.##.......##.#","#......B......#","#.....###.....#","#S............#","###############"],"boss":true},{"name":"Desert Oasis","theme":3,"map":["###############","#.....HE....#S#","###########.#.#","#G..#....H#.#.#","###.#2###.#.#.#","#...#.#.H.#E..#","#.#.#.#H#.###.#","#.#3#.#.#.2.#.#","#.###.3.#####.#","#H..2.#.H....H#","###############"]},{"name":"Cactus Court","theme":3,"map":["###############","#G#...H..3.2..#","#.#HH##3##HH#.#","#.#...#E.E..#3#","#2##H.#.#3#.#.#","#..2..#...#.#3#","#######.#.###H#","#...#..2#.#...#","#.H##.#H#.#.###","#.H.3...#....S#","###############"]},{"name":"Sand Garden","theme":3,"map":["###############","#G#..H....3...#","#.#####.#####2#","#.....#2..#.#E#","#H###.###.#.#E#","#...#H.H#H#.E.#","###.###.#.###.#","#...H.#3#...#.#","#.2####.###.#.#","#.......H...#S#","###############"]},{"name":"Moonlit Walk","theme":4,"map":["###############","#G..#.EE.....S#","###.#####.2.#.#","#.#.#3..#.#E#.#","#.3.#.#.###2###","#.2.#.#.H.2...#","#H#3#2###.#.#.#","#.#...#2..H.#.#","#.#2#H#.HH###H#","#....H#...H3..#","###############"]},{"name":"Royal Gardens","theme":4,"map":["###############","#.#.H....2H...#","#H#.#########.#","#.#...H..H.H#.#","#E#########.3.#","#.#3..2...H.#.#","#.#E#########.#","#.H...#.....#2#","#.###.#.###.#.#","#S...E#..G#.H.#","###############"]},{"name":"Summer Maze","theme":0,"map":["###############","#G#.H3..2....S#","#.#3##2######.#","#.#323.....3#.#","#.#.#2#####.#.#","#.#.......#.#.#","#H#.#######.###","#.#.#.....#...#","#.###.###E###2#","#E2...#3...E..#","###############"]},{"name":"Berry Grove","theme":1,"map":["###############","#.#G#...#....3#","#3#.3.#.#3###.#","#.#3.H#.#.E.#.#","#.#####3#2###.#","#.....#.2.#3H3#","####H.#.#3#.###","#.....#..E3..3#","#.##3########.#","#S....2..2..E.#","###############"]},{"name":"Glass Garden","theme":2,"map":["###############","#...#G...3...2#","###.#########.#","#.#.2H..3.3.#.#","#.#####.#.#.#H#","#...#...#2#.#.#","#.#.#.###.#.2.#","#.#...#.2.#2HE#","#.#####E#####2#","#S...H.3#..E2.#","###############"]},{"name":"Dune Maze","theme":3,"map":["###############","#G#.........3.#","#.###.##2####.#","#...#3#..33...#","###.#.#3#######","#.#...#....3#3#","#.########32#.#","#..E#....H.2#3#","#.#.#H#2#####.#","#S#3.E....E3E.#","###############"]},{"name":"Starlit Court","theme":4,"map":["###############","#...#...H.3...#","###E#.#H#H###.#","#E3.#E#.#3.3#.#","#.###3#3###3#.#","#.#3...E#G#.#.#","#.2.#####.#.#.#","#.#.#.H..3#.#.#","#.#.#.#####.#.#","#S..#..2......#","###############"]},{"name":"Rusty Yard","theme":6,"map":["###############","#.#.3G2..3....#","#.#.###.###.#.#","#.#H..#2#..3#.#","#.###.#3#H#####","#...#2..#.E2E.#","###.#2####3##.#","#.#.#.#..3..2E#","#.#.###.#####E#","#S....3.#2..H.#","###############"]},{"name":"Gear Garden","theme":6,"map":["###############","#..H..#..3...2#","#2#3#.###2#.#.#","#H3...#3...2#E#","#.#.###.#####H#","#E2.3.2.#.23..#","#.3.#E###3###3#","#..E3H#.#.#...#","#.###H#.#.#3#.#","#S....#.....#G#","###############"]},{"name":"Copper Walk","theme":6,"map":["###############","#S.....2.E..#G#","########3##H#.#","#...H.E.E2#.#.#","#.H######.3E#3#","#2..#...#E2.#.#","###.#332#####.#","#.2.#....2#H..#","#.2.#.#2#.#3#.#","#....H#.H...2.#","###############"]},{"name":"Sparkworks","theme":6,"map":["###############","#.HE#G..H.....#","###.#######.###","#2#.H..3..#3..#","#.#.#3###.###2#","#...#2#2H.#.E.#","#.###.#.#3#E#H#","#.#3..#...#E..#","#.###2#.#####3#","#S...E#..2....#","###############"]},{"name":"Robot Works","theme":6,"map":["###############","#G..B.....B...#","#.##...#...##.#","#..B...#...B..#","#.#.#.###.#.#.#","#E.....B.....E#","#.#.#.###.#.#.#","#..B...#...B..#","#.##...#...##.#","#S...B...B....#","###############"],"boss":true,"kind":"robot"}];
+const LEVELS=[{"name":"Front Garden","theme":0,"map":["###############","#S....H.......#","#.###.#.#####.#","#.#...#.#.E.#.#","#.#.###.#.#.#.#","#...#...H.#...#","###.#.###.#####","#...#...#...E.#","#.#####.#####H#","#..E....H...G.#","###############"]},{"name":"Rose Walk","theme":0,"map":["###############","#G#...#...#...#","#.#.#.#.#.###.#","#...#...#H..#.#","###H#######.#.#","#.....#..H.H#.#","#.###.#H#####.#","#.#.#..E#...H.#","#.#.###H#####.#","#............S#","###############"]},{"name":"Herb Patch","theme":0,"map":["###############","#G#......E..#S#","#.#####.#H#.H.#","#...#.H.#H#...#","###.H.###.###.#","#..H#.#.....HH#","#H###H#.#####H#","#.#...#.#H....#","#.##H.#.#.###.#","#.....#...#...#","###############"]},{"name":"Orchard Rows","theme":1,"map":["###############","#S..#..H......#","###.H.#######H#","#.#.#.#H....#.#","#.#E#.#.###.#.#","#.#.#.#..H#.#.#","#.#.#.#.#.#.#.#","#H#.#.#.#.#G#.#","#.#.#.#.#.###.#","#.....H.#..H.H#","###############"]},{"name":"Pumpkin Patch","theme":1,"map":["###############","#G..#.#......S#","##H.#.#.#.##H.#","#H..#.#.#.H...#","#.###.#.#H###.#","#.#.E.#.#...#H#","#.#H#.#.###.#.#","#.#.#.....#H#.#","#.###H#####.H.#","#..H......H.HH#","###############"]},{"name":"Apple Lane","theme":1,"map":["###############","#G#.....H....S#","#.#.###.#####.#","#.#...#...#.#.#","#.#2#.###2#.#.#","#.H.#.#...H...#","#H#.###H###.###","#...#H..#E..H.#","#H###.#2#.###.#","#....H#....H..#","###############"]},{"name":"Frosty Lawn","theme":2,"map":["###############","#.#.....#.H...#","#.#2###.H.###H#","#.H...2.#.#...#","#.#.#.#.###.#.#","#E#.#H#....H#.#","#.###.#######.#","#.#HH.#G#...#.#","#.#.###.#.#.#.#","#S..#.....#..2#","###############"]},{"name":"Snow Maze","theme":2,"map":["###############","#.#...E......S#","#2#.#########.#","#.#.#.#...H.#.#","#.#.2.#.###.#.#","#...#...#.#H#.#","#####.###.#2#H#","#...2.#...#...#","#.H##H#.#.#####","#.H.2..2#.2..G#","###############"]},{"name":"Ice Garden","theme":2,"map":["###############","#G2.....#....2#","#.#.H.#.#.###.#","#H#H#2#.#.#.#.#","#H###H#.#.#.#.#","#.#H..#.#.#.#.#","#.#.###.#.#H#.#","#.H.#.#..2#.#2#","#####.#####.#.#","#S..........E.#","###############"]},{"name":"Ninja Dojo","theme":5,"map":["###############","#..........B.G#","#.##.......##.#","#...B..2....B.#","#.....###.....#","#.E....2....E.#","#.##.......##.#","#......B......#","#.....###.....#","#S............#","###############"],"boss":true},{"name":"Desert Oasis","theme":3,"map":["###############","#.....HE....#S#","###########.#.#","#G..#....H#.#.#","###.#2###.#.#.#","#...#.#.H.#E..#","#.#.#.#H#.###.#","#.#3#.#.#.2.#.#","#.###.3.#####.#","#H..2.#.H....H#","###############"]},{"name":"Cactus Court","theme":3,"map":["###############","#G#...H..3.2..#","#.#HH##3##HH#.#","#.#...#E.E..#3#","#2##H.#.#3#.#.#","#..2..#...#.#3#","#######.#.###H#","#...#..2#.#...#","#.H##.#H#.#.###","#.H.3...#....S#","###############"]},{"name":"Sand Garden","theme":3,"map":["###############","#G#..H....3...#","#.#####.#####2#","#.....#2..#.#E#","#H###.###.#.#E#","#...#H.H#H#.E.#","###.###.#.###.#","#...H.#3#...#.#","#.2####.###.#.#","#.......H...#S#","###############"]},{"name":"Moonlit Walk","theme":4,"map":["###############","#G..#.EE.....S#","###.#####.2.#.#","#.#.#3..#.#E#.#","#.3.#.#.###2###","#.2.#.#.H.2...#","#H#3#2###.#.#.#","#.#...#2..H.#.#","#.#2#H#.HH###H#","#....H#...H3..#","###############"]},{"name":"Royal Gardens","theme":4,"map":["###############","#.#.H....2H...#","#H#.#########.#","#.#...H..H.H#.#","#E#########.3.#","#.#3..2...H.#.#","#.#E#########.#","#.H...#.....#2#","#.###.#.###.#.#","#S...E#..G#.H.#","###############"]},{"name":"Summer Maze","theme":0,"map":["###############","#G#.H3..2....S#","#.#3##2######.#","#.#323.....3#.#","#.#.#2#####.#.#","#.#.......#.#.#","#H#.#######.###","#.#.#.....#...#","#.###.###E###2#","#E2...#3...E..#","###############"]},{"name":"Berry Grove","theme":1,"map":["###############","#.#G#...#....3#","#3#.3.#.#3###.#","#.#3.H#.#.E.#.#","#.#####3#2###.#","#.....#.2.#3H3#","####H.#.#3#.###","#.....#..E3..3#","#.##3########.#","#S....2..2..E.#","###############"]},{"name":"Glass Garden","theme":2,"map":["###############","#...#G...3...2#","###.#########.#","#.#.2H..3.3.#.#","#.#####.#.#.#H#","#...#...#2#.#.#","#.#.#.###.#.2.#","#.#...#.2.#2HE#","#.#####E#####2#","#S...H.3#..E2.#","###############"]},{"name":"Dune Maze","theme":3,"map":["###############","#G#.........3.#","#.###.##2####.#","#...#3#..33...#","###.#.#3#######","#.#...#....3#3#","#.########32#.#","#..E#....H.2#3#","#.#.#H#2#####.#","#S#3.E....E3E.#","###############"]},{"name":"Robot Works","theme":6,"map":["###############","#G..B.....B...#","#.##...#...##.#","#..B...#...B..#","#.#.#.###.#.#.#","#E.....B.....E#","#.#.#.###.#.#.#","#..B...#...B..#","#.##...#...##.#","#S...B...B....#","###############"],"boss":true,"kind":"robot"},{"name":"Rusty Yard","theme":6,"map":["###############","#.#.3G2..3....#","#.#.###.###.#.#","#.#H..#2#..3#.#","#.###.#3#H#####","#...#2..#.E2E.#","###.#2####3##.#","#.#.#.#..3..2E#","#.#.###.#####E#","#S....3.#2..H.#","###############"]},{"name":"Gear Garden","theme":6,"map":["###############","#..H..#..3...2#","#2#3#.###2#.#.#","#H3...#3...2#E#","#.#.###.#####H#","#E2.3.2.#.23..#","#.3.#E###3###3#","#..E3H#.#.#...#","#.###H#.#.#3#.#","#S....#.....#G#","###############"]},{"name":"Copper Walk","theme":6,"map":["###############","#S.....2.E..#G#","########3##H#.#","#...H.E.E2#.#.#","#.H######.3E#3#","#2..#...#E2.#.#","###.#332#####.#","#.2.#....2#H..#","#.2.#.#2#.#3#.#","#....H#.H...2.#","###############"]},{"name":"Sparkworks","theme":6,"map":["###############","#.HE#G..H.....#","###.#######.###","#2#.H..3..#3..#","#.#.#3###.###2#","#...#2#2H.#.E.#","#.###.#.#3#E#H#","#.#3..#...#E..#","#.###2#.#####3#","#S...E#..2....#","###############"]},{"name":"Mech Citadel","theme":6,"map":["###############","#G...B...B....#","#.##.#...#.##.#","#.B..E...E..B.#","#.#.##.#.##.#.#","#E.....B.....E#","#.#.##.#.##.#.#","#.B..E...E..B.#","#.##.#...#.##.#","#S...B...B....#","###############"],"boss":true,"kind":"mech"}];
 
 /* Six looks. sand = [hue, saturation %, lightness %] */
 const THEMES=[
@@ -260,7 +270,7 @@ const canvas=$('board'), ctx=canvas.getContext('2d');
 
 /* ---------- saved progress ---------- */
 const KEY='bear-blast-v2';
-const DEF={coins:0,level:1,maxEnergy:MIN_ENERGY,tonics:0,bag:MIN_BAG,power:0,heartUp:0,muted:false};
+const DEF={coins:0,level:1,maxEnergy:MIN_ENERGY,tonics:0,bag:MIN_BAG,power:0,heartUp:0,easy:true,muted:false};
 const save=Object.assign({},DEF);
 try{
   const raw=localStorage.getItem(KEY);
@@ -285,7 +295,7 @@ const blastBonus=p=>{ let c=0; for(let i=2;i<=p;i++) if(isPrime(i)) c++; return 
 const blastR=p=>1+blastBonus(p==null?save.power:p);
 const dmgOf=p=>1+(p==null?save.power:p);
 const ENEMY_BLAST_MAX=3;   /* enemy bombs grow with your bomb power too, but stay weaker than the bosses (range 4) */
-const enemyBlastR=()=>Math.min(ENEMY_BLAST_MAX,blastR());
+const enemyBlastR=()=>save.easy?1:Math.min(ENEMY_BLAST_MAX,blastR());
 
 /* ---------- sound ---------- */
 let ac=null;
@@ -353,8 +363,8 @@ let bossLevel=false,boss=null,ninjaBombs=[],blastFx=[],respawns=[];
 let hearts=BOSS.hearts,maxHearts=BOSS.hearts,invulnUntil=0,paused=false,shopMode=null;
 let holes={},fists=[];
 const holeAt=(x,y)=>(holes[y*COLS+x]||0)>now;
-const bossName=()=>boss&&boss.kind==='robot'?'robot':'ninja';
-const bossBonus=()=>boss&&boss.kind==='robot'?BOSS_BONUS_ROBOT:BOSS_BONUS;
+const bossName=()=>boss&&boss.kind==='robot'?'robot':(boss&&boss.kind==='mech'?'mech ninja':'ninja');
+const bossBonus=()=>boss&&boss.kind==='robot'?BOSS_BONUS_ROBOT:(boss&&boss.kind==='mech'?BOSS_BONUS_MECH:BOSS_BONUS);
 let pl,energy,bombs,minNeed,placed=0,bought=0;
 let fuses=[],parts=[],rings=[],flashes=[],floaters=[];
 let hint=null,walkPath=[],walkFace=null,queuedDir=null,dirStack=[];
@@ -396,9 +406,9 @@ function loadLevel(n){
   hearts=BOSS.hearts+save.heartUp; invulnUntil=0; paused=false; shopMode=null;
   state='play';
   boss=null; moles=[];
-  const kind=L.kind||'ninja', bhp=kind==='robot'?ROBOT.hp:BOSS.hp;
+  const kind=L.kind||'ninja', bhp=kind==='robot'?ROBOT.hp:(kind==='mech'?MECH.hp:BOSS.hp);
   if(bossLevel&&spots.length) boss={kind:kind,atk:null,dir:[1,0],x:spots[0][0],y:spots[0][1],hp:bhp,max:bhp,phase:'idle',t0:now+800,target:null,dest:null,alive:true,spots:spots,hitAt:-9999};
-  maxHearts=((boss&&boss.kind==='robot')?ROBOT.hearts:BOSS.hearts)+save.heartUp; hearts=maxHearts;
+  maxHearts=(!boss?BOSS.hearts:(boss.kind==='robot'?ROBOT.hearts:(boss.kind==='mech'?MECH.hearts:BOSS.hearts)))+save.heartUp; hearts=maxHearts;
   placeBombPickups(spots);
   if(!bossLevel) spawnMoles();
   const r=route(start.x,start.y);
@@ -514,6 +524,7 @@ function updateHud(){
   $('bombSmall').textContent=bombs>0?'1 energy + 1 bomb':'1 energy + '+BOMB_PRICE+' coins';
   $('coinNum').textContent=save.coins;
   $('tonicSmall').textContent='+'+TONIC_GAIN+' energy · '+save.tonics+' left';
+  $('modeBtn').textContent=save.easy?'Easy':'Hard'; $('modeBtn').setAttribute('aria-label','Difficulty: '+(save.easy?'Easy':'Hard')+'. Tap to switch.');
   $('heartsStat').hidden=false;
   {
     let h='';
@@ -637,7 +648,7 @@ function placeBomb(){
 function useHint(){
   if(state!=='play'||paused) return;
   audio();
-  if(bossLevel){ toast(boss&&boss.kind==='robot'?'Defeat the robot to open the portal. Step out of the fist line and hide from the bombs.':'Defeat the ninja to open the portal. Hide behind walls when he winds up.'); return; }
+  if(bossLevel){ toast(boss&&boss.kind==='mech'?'Defeat the mech ninja to open the portal. It teleports, throws long bombs, punches 3-wide fists and shakes tiles away.':boss&&boss.kind==='robot'?'Defeat the robot to open the portal. Step out of the fist line and hide from the bombs.':'Defeat the ninja to open the portal. Hide behind walls when he winds up.'); return; }
   if(energy<2){ toast('A hint costs 2 energy.'); sfx.deny(); wobble('energyStat'); return; }
   const sx=pl.mv?pl.mv.toX:pl.x, sy=pl.mv?pl.mv.toY:pl.y;
   const r=route(sx,sy);
@@ -752,7 +763,7 @@ function defeatBoss(){
 }
 function bossUpdate(){
   if(!boss||!boss.alive) return;
-  if(boss.kind==='robot'){ robotUpdate(); return; }
+  if(boss.kind==='robot'||boss.kind==='mech'){ robotUpdate(); return; }
   const rage=boss.hp<=boss.max/3?2:(boss.hp<=boss.max*2/3?1:0);
   if(boss.phase==='idle'&&now-boss.t0>=BOSS.idle-450*rage){
     const p=playerCell();
@@ -787,47 +798,80 @@ function fistCells(bx,by,d){
   for(let i=1;i<=14;i++){ const x=bx+d[0]*i, y=by+d[1]*i; if(!inb(x,y)||T[y][x]!=='.') break; out.push([x,y]); }
   return out;
 }
+/* the mech's fist also tears up the tiles beside the line (3 wide) */
+function fistSide(cells,d){
+  const out=[], px=Math.abs(d[1]), py=Math.abs(d[0]);
+  for(const c of cells) for(const sg of [-1,1]){
+    const x=c[0]+px*sg, y=c[1]+py*sg;
+    if(inb(x,y)&&T[y][x]==='.'&&!(x===boss.x&&y===boss.y)) out.push([x,y]);
+  }
+  return out;
+}
+function quakeCells(){
+  const p=playerCell(), pool=[];
+  for(let y=0;y<ROWS;y++) for(let x=0;x<COLS;x++){
+    if(T[y][x]!=='.'||(x===goal.x&&y===goal.y)||(x===boss.x&&y===boss.y)||(x===p[0]&&y===p[1])) continue;
+    const dd=Math.abs(x-p[0])+Math.abs(y-p[1]); if(dd<=5) pool.push([x,y]);
+  }
+  const rage=boss.hp<=boss.max/3?2:(boss.hp<=boss.max*2/3?1:0), n=Math.min(pool.length,MECH.quake+3*rage), out=[];
+  for(let i=0;i<n;i++) out.push(pool.splice(Math.floor(Math.random()*pool.length),1)[0]);
+  return out;
+}
 function fireFist(){
-  const cells=fistCells(boss.x,boss.y,boss.dir), p=playerCell();
+  const C=cfg(), cells=fistCells(boss.x,boss.y,boss.dir), p=playerCell();
   const hitIdx=cells.findIndex(c=>c[0]===p[0]&&c[1]===p[1]);
   const used=hitIdx>=0?cells.slice(0,hitIdx+1):cells;
   const guard={}; guard[p[0]+','+p[1]]=1;
   if(pl.mv){ guard[pl.mv.fromX+','+pl.mv.fromY]=1; guard[pl.mv.toX+','+pl.mv.toY]=1; }
-  for(const c of used){ if(!guard[c[0]+','+c[1]]) holes[c[1]*COLS+c[0]]=now+ROBOT.pit; }
-  fists.push({x0:boss.x,y0:boss.y,cells:used,t0:now});
+  const all=boss.kind==='mech'?used.concat(fistSide(used,boss.dir)):used;
+  for(const c of all){ if(!guard[c[0]+','+c[1]]) holes[c[1]*COLS+c[0]]=now+C.pit; }
+  fists.push({x0:boss.x,y0:boss.y,cells:used,t0:now,ms:C.fistMs});
   walkPath=[]; walkFace=null;
   sfx.boom(); if(!reduce){ shakeAmp=8; shakeT=now; }
-  if(hitIdx>=0) hurtPlayer(ROBOT.fist);
+  if(hitIdx>=0) hurtPlayer(C.fist);
+}
+function fireQuake(){
+  const p=playerCell(), guard={}; guard[p[0]+','+p[1]]=1;
+  if(pl.mv){ guard[pl.mv.fromX+','+pl.mv.fromY]=1; guard[pl.mv.toX+','+pl.mv.toY]=1; }
+  for(const c of (boss.quake||[])){ if(!guard[c[0]+','+c[1]]) holes[c[1]*COLS+c[0]]=now+MECH.pit; }
+  boss.quake=null; walkPath=[]; walkFace=null;
+  sfx.boom(); if(!reduce){ shakeAmp=10; shakeT=now; }
 }
 function robotUpdate(){
+  const C=cfg(), mech=boss.kind==='mech';
   const rage=boss.hp<=boss.max/3?2:(boss.hp<=boss.max*2/3?1:0);
-  if(boss.phase==='idle'&&now-boss.t0>=ROBOT.idle-300*rage){
+  if(boss.phase==='idle'&&now-boss.t0>=C.idle-300*rage){
     const p=playerCell(), dx=p[0]-boss.x, dy=p[1]-boss.y;
-    boss.atk=Math.random()<.5?'fist':'bomb';
+    if(mech){ const q=Math.random(); boss.atk=q<.36?'fist':(q<.7?'bomb':'quake'); }
+    else boss.atk=Math.random()<.5?'fist':'bomb';
     boss.dir=Math.abs(dx)>=Math.abs(dy)?[Math.sign(dx)||1,0]:[0,Math.sign(dy)];
     boss.target=[p[0],p[1]]; boss.phase='windup'; boss.t0=now; sfx.whoosh();
-  }else if(boss.phase==='windup'&&now-boss.t0>=ROBOT.wind){
+    boss.quake=boss.atk==='quake'?quakeCells():null;
+  }else if(boss.phase==='windup'&&now-boss.t0>=C.wind){
     if(boss.atk==='fist') fireFist();
+    else if(boss.atk==='quake') fireQuake();
     else{
-      const base={sx:boss.x,sy:boss.y,landed:false,lt:0,range:ROBOT.range,fuse:ROBOT.fuse,flight:ROBOT.flight};
+      const base={sx:boss.x,sy:boss.y,landed:false,lt:0,range:C.range,fuse:C.fuse,flight:C.flight,dmg:C.bombDmg||1};
       ninjaBombs.push(Object.assign({x:boss.target[0],y:boss.target[1],t0:now},base));
       const tx=boss.target[0], ty=boss.target[1], near=[];
       for(let y=ty-3;y<=ty+3;y++) for(let x=tx-3;x<=tx+3;x++){
         const dd=Math.abs(x-tx)+Math.abs(y-ty);
         if(dd>=2&&dd<=3&&open(x,y)&&!(x===boss.x&&y===boss.y)) near.push([x,y]);
       }
-      for(let i=0;i<rage&&near.length;i++){
+      for(let i=0;i<rage+(mech?1:0)&&near.length;i++){
         const c=near.splice(Math.floor(Math.random()*near.length),1)[0];
         ninjaBombs.push(Object.assign({x:c[0],y:c[1],t0:now+150*(i+1)},base));
       }
       sfx.whoosh();
     }
-    boss.phase='idle'; boss.t0=now; boss.atk=null;
-  }else if(boss.phase==='vanish'&&now-boss.t0>=ROBOT.vanish){
+    boss.atk=null;
+    if(mech&&Math.random()<.55+.15*rage){ boss.phase='vanish'; boss.t0=now; boss.dest=pickSpot(); smokePuff(boss.x,boss.y); }
+    else{ boss.phase='idle'; boss.t0=now; }
+  }else if(boss.phase==='vanish'&&now-boss.t0>=C.vanish){
     boss.x=boss.dest[0]; boss.y=boss.dest[1];
     const p=playerCell();
     if(p[0]===boss.x&&p[1]===boss.y){ const alt=boss.spots.find(s=>!(s[0]===p[0]&&s[1]===p[1])); if(alt){ boss.x=alt[0]; boss.y=alt[1]; } }
-    boss.phase='idle'; boss.t0=now-(ROBOT.idle-1000);
+    boss.phase='idle'; boss.t0=now-(C.idle-(C.after||1000));
     smokePuff(boss.x,boss.y);
   }
   bombsUpdate();
@@ -856,7 +900,7 @@ function explodeNinja(nb){
     if(cells.some(c=>c[0]===mc[0]&&c[1]===mc[1])) hitMole(m,1);
   }
   const p=playerCell();
-  if(cells.some(c=>c[0]===p[0]&&c[1]===p[1])) hurtPlayer();
+  if(cells.some(c=>c[0]===p[0]&&c[1]===p[1])) hurtPlayer(nb.dmg||1);
 }
 function hurtPlayer(n){
   n=n||1;
@@ -866,20 +910,20 @@ function hurtPlayer(n){
   floater(p[0]*CS+CS/2,p[1]*CS+6,'-'+n+(n>1?' hearts':' heart'),'#ff5a6a');
   sfx.deny(); updateHud();
   if(hearts<=0){
-    const msg=bossLevel?(boss&&boss.kind==='robot'?'The robot got you. Its fist and bombs both show a warning for over a second, so step out of the line and keep walls between you and the blast.':'The ninja got you. Stone walls and hedges stop his blasts, so hide behind them and strike when it is safe.'):'The moles got you three times. Watch for the red warning marks, then step out of the way. Walls and hedges stop their bombs and whips.';
+    const msg=bossLevel?(boss&&boss.kind==='mech'?'The mech ninja got you. It teleports, so watch its warnings: lines and bombs flash for a full second, and the floor shakes loose before tiles vanish.':boss&&boss.kind==='robot'?'The robot got you. Its fist and bombs both show a warning for over a second, so step out of the line and keep walls between you and the blast.':'The ninja got you. Stone walls and hedges stop his blasts, so hide behind them and strike when it is safe.'):'The moles got you three times. Watch for the red warning marks, then step out of the way. Walls and hedges stop their bombs and whips.';
     showStuck(msg,'Knocked out','lost');
   }
 }
 
 /* ---------- garden moles: enemies placed on the way to the goal, armed as the levels go on ---------- */
-const moleHp=n=>n<13?1:2;   /* one bomb (or one enemy attack) kills early moles, two bombs from level 13 */
+const moleHp=n=>(save.easy||n<13)?1:2;   /* one bomb (or one enemy attack) kills early moles, two bombs from level 13 */
 const enemyCount=n=>n<=4?1:(n<16?2:3);
 /* levels 1-3: claws only. 4-8: bomb throwers. 9+: two-square whips. 12+: every second mole throws bombs. */
 function weaponFor(n,i){ if(n<4) return 'none'; if(n<9) return 'bomb'; if(n>=12&&i%2===1) return 'bomb'; return 'whip'; }
-const EN={bombCd:3800,wind:700,flight:450,fuse:1300,reach:5,whipCd:1900,whipWind:560,lash:240,whipLen:2};
+const EN={bombCd:3800,wind:700,flight:450,fuse:1300,reach:5,whipCd:1900,whipWind:560,lash:240};
 function makeMole(x,y,i){
   const h=moleHp(cur), w=weaponFor(cur,i);
-  return {x:x,y:y,hp:h,max:h,mv:null,t0:now+1500+i*500,dir:[1,0],hitAt:-9999,alive:true,reward:4+2*h+(w==='none'?0:2),weapon:w,act:null,at:0,cd:now+2600+i*700,aim:null,cells:null};
+  return {x:x,y:y,hp:h,max:h,mv:null,t0:now+1500+i*500,dir:[1,0],hitAt:-9999,alive:true,reward:4+2*h+(w==='none'?0:2),weapon:w,act:null,at:0,cd:now+(2600+i*700)*(save.easy?1.6:1),aim:null,cells:null};
 }
 function spawnMoles(){
   moles=[];
@@ -901,14 +945,14 @@ function spawnMoles(){
   }
 }
 function moleCellOf(m){
-  if(m.mv) return (now-m.mv.t0)/MOLE_STEP<.5?[m.mv.fromX,m.mv.fromY]:[m.mv.toX,m.mv.toY];
+  if(m.mv) return (now-m.mv.t0)/moleStepMs()<.5?[m.mv.fromX,m.mv.fromY]:[m.mv.toX,m.mv.toY];
   return [m.x,m.y];
 }
 function moleAt(x,y){ return moles.some(m=>{ if(!m.alive) return false; const c=moleCellOf(m); return c[0]===x&&c[1]===y; }); }
 /* cells a whip lash covers: up to 2 squares in one direction, stopped by stone and hedges */
 function whipCells(cx,cy,d){
   const out=[];
-  for(let i=1;i<=EN.whipLen;i++){
+  for(let i=1;i<=whipLen();i++){
     const x=cx+d[0]*i, y=cy+d[1]*i;
     if(!inb(x,y)||T[y][x]!=='.') break;
     out.push([x,y]);
@@ -919,9 +963,9 @@ function moleAttack(m,mc){
   if(m.weapon==='none'||now<m.cd||m.mv) return;
   const p=playerCell(), dx=p[0]-mc[0], dy=p[1]-mc[1], dist=Math.abs(dx)+Math.abs(dy);
   if(m.weapon==='bomb'){
-    if(dist>=2&&dist<=EN.reach){ m.act='wind'; m.at=now; m.aim=[p[0],p[1]]; m.dir=Math.abs(dx)>=Math.abs(dy)?[Math.sign(dx),0]:[0,Math.sign(dy)]; sfx.whoosh(); }
+    if(dist>=2&&dist<=(save.easy?4:EN.reach)){ m.act='wind'; m.at=now; m.aim=[p[0],p[1]]; m.dir=Math.abs(dx)>=Math.abs(dy)?[Math.sign(dx),0]:[0,Math.sign(dy)]; sfx.whoosh(); }
   }else if(m.weapon==='whip'){
-    const aligned=(dx===0&&dy!==0&&Math.abs(dy)<=EN.whipLen)||(dy===0&&dx!==0&&Math.abs(dx)<=EN.whipLen);
+    const aligned=(dx===0&&dy!==0&&Math.abs(dy)<=whipLen())||(dy===0&&dx!==0&&Math.abs(dx)<=whipLen());
     if(aligned){
       const d=[Math.sign(dx),Math.sign(dy)];
       if(whipCells(mc[0],mc[1],d).some(c=>c[0]===p[0]&&c[1]===p[1])){ m.dir=d; m.act='wind'; m.at=now; sfx.whoosh(); }
@@ -930,12 +974,12 @@ function moleAttack(m,mc){
 }
 function moleStep(m){
   if(m.act==='wind'){
-    const t=m.weapon==='bomb'?EN.wind:EN.whipWind;
+    const t=(m.weapon==='bomb'?EN.wind:EN.whipWind)*windMul();
     if(now-m.at>=t){
       const mc=moleCellOf(m);
       if(m.weapon==='bomb'){
-        ninjaBombs.push({sx:mc[0],sy:mc[1],x:m.aim[0],y:m.aim[1],t0:now,landed:false,lt:0,range:enemyBlastR(),fuse:EN.fuse,flight:EN.flight,small:true});
-        m.act=null; m.cd=now+EN.bombCd; m.t0=now+350;
+        ninjaBombs.push({sx:mc[0],sy:mc[1],x:m.aim[0],y:m.aim[1],t0:now,landed:false,lt:0,range:enemyBlastR(),fuse:EN.fuse*(save.easy?1.25:1),flight:EN.flight,small:true});
+        m.act=null; m.cd=now+EN.bombCd*cdMul(); m.t0=now+350;
       }else{
         m.cells=whipCells(mc[0],mc[1],m.dir); m.act='lash'; m.at=now; sfx.boom&&tone(240,.12,'sawtooth',.05,-120);
         const p=playerCell();
@@ -950,10 +994,10 @@ function moleStep(m){
     return;
   }
   if(m.act==='lash'){
-    if(now-m.at>=EN.lash){ m.act=null; m.cells=null; m.cd=now+EN.whipCd; m.t0=now+250; }
+    if(now-m.at>=EN.lash){ m.act=null; m.cells=null; m.cd=now+EN.whipCd*cdMul(); m.t0=now+250; }
     return;
   }
-  const step=m.weapon==='whip'?MOLE_STEP-80:MOLE_STEP;
+  const step=m.weapon==='whip'?moleStepMs()-80:moleStepMs();
   if(m.mv&&now-m.mv.t0>=step){ m.x=m.mv.toX; m.y=m.mv.toY; m.mv=null; m.t0=now+220; }
   if(!m.mv&&now>=m.t0){
     const p=playerCell(), pb=bfs(p[0],p[1]), here=pb.dist[m.y][m.x];
@@ -1015,7 +1059,7 @@ function win(){
 function nextTarget(){ if(save.level<=LEVELS.length) return save.level; return cur>=LEVELS.length?1:cur+1; }
 function showClear(info){
   const all=info.cleared>=LEVELS.length&&save.level>LEVELS.length;
-  $('clearTitle').textContent=all?(info.boss&&info.kind==='robot'?'Robot defeated! All '+LEVELS.length+' gardens cleared!':'All '+LEVELS.length+' gardens cleared!'):(info.boss?(info.kind==='robot'?'Robot defeated!':'Ninja defeated!'):'Level '+info.cleared+' cleared!');
+  $('clearTitle').textContent=all?(info.boss&&info.kind==='mech'?'Mech Ninja defeated! All '+LEVELS.length+' gardens cleared!':'All '+LEVELS.length+' gardens cleared!'):(info.boss?(info.kind==='robot'?'Robot defeated!':'Ninja defeated!'):'Level '+info.cleared+' cleared!');
   const bits=['Garden bonus '+bonusFor(info.cleared)+' coins'+(info.boss?' + '+info.kind+' bonus '+info.bonus:'')+(info.unused>0?' + '+info.unused+' unused bomb'+(info.unused===1?'':'s')+' × '+COIN_PER_BOMB+' = '+(info.unused*COIN_PER_BOMB):'')+' = '+info.earned+' coins.'];
   if(info.bought>0) bits.push('You spent '+(info.bought*BOMB_PRICE)+' coins on '+info.bought+' extra bomb'+(info.bought===1?'':'s')+' during the level.');
   if(!info.boss){
@@ -1337,7 +1381,7 @@ function drawWhipThreats(){
 }
 function drawMoleOne(mole){
   let mx=mole.x, my=mole.y;
-  if(mole.mv){ const p=Math.min(1,(now-mole.mv.t0)/MOLE_STEP); mx=mole.mv.fromX+(mole.mv.toX-mole.mv.fromX)*p; my=mole.mv.fromY+(mole.mv.toY-mole.mv.fromY)*p; }
+  if(mole.mv){ const p=Math.min(1,(now-mole.mv.t0)/moleStepMs()); mx=mole.mv.fromX+(mole.mv.toX-mole.mv.fromX)*p; my=mole.mv.fromY+(mole.mv.toY-mole.mv.fromY)*p; }
   const cx=mx*CS+CS/2, cy=my*CS+CS/2+4, hurt=now-mole.hitAt<180, wob=Math.sin(now/90)*1.2;
   const armed=mole.weapon!=='none', angry=mole.act==='wind';
   ctx.save(); ctx.translate(cx,cy);
@@ -1373,8 +1417,25 @@ function drawPit(px,py,left){
   ctx.strokeStyle='rgba(255,110,50,.25)'; ctx.beginPath(); ctx.moveTo(px+10,py+10); ctx.lineTo(px+CS-10,py+CS-10); ctx.moveTo(px+CS-10,py+10); ctx.lineTo(px+10,py+CS-10); ctx.stroke();
 }
 function drawFistThreat(){
-  if(!bossLevel||!boss||!boss.alive||boss.kind!=='robot'||boss.phase!=='windup'||boss.atk!=='fist') return;
-  const cells=fistCells(boss.x,boss.y,boss.dir), prog=Math.min(1,(now-boss.t0)/ROBOT.wind), pulse=.5+.5*Math.sin(now/60);
+  if(!bossLevel||!bigBoss()||!boss.alive||boss.phase!=='windup') return;
+  const prog=Math.min(1,(now-boss.t0)/cfg().wind), pulse=.5+.5*Math.sin(now/60);
+  if(boss.atk==='quake'){
+    for(const c of (boss.quake||[])){
+      rr(c[0]*CS+6,c[1]*CS+6,CS-12,CS-12,8);
+      ctx.fillStyle='rgba(255,60,210,'+(.1+.3*prog+.08*pulse)+')'; ctx.fill();
+      ctx.strokeStyle='rgba(255,140,240,'+(.35+.55*prog)+')'; ctx.lineWidth=2; ctx.stroke();
+    }
+    return;
+  }
+  if(boss.atk!=='fist') return;
+  const cells=fistCells(boss.x,boss.y,boss.dir);
+  if(boss.kind==='mech'){
+    for(const c of fistSide(cells,boss.dir)){
+      rr(c[0]*CS+6,c[1]*CS+6,CS-12,CS-12,8);
+      ctx.fillStyle='rgba(255,60,210,'+(.06+.2*prog)+')'; ctx.fill();
+      ctx.strokeStyle='rgba(255,140,240,'+(.25+.4*prog)+')'; ctx.lineWidth=1.5; ctx.stroke();
+    }
+  }
   for(const c of cells){
     rr(c[0]*CS+4,c[1]*CS+4,CS-8,CS-8,8);
     ctx.fillStyle='rgba(255,150,40,'+(.12+.28*prog+.06*pulse)+')'; ctx.fill();
@@ -1383,7 +1444,7 @@ function drawFistThreat(){
 }
 function drawFists(){
   for(let i=fists.length-1;i>=0;i--){
-    const f=fists[i], t=(now-f.t0)/ROBOT.fistMs;
+    const f=fists[i], t=(now-f.t0)/(f.ms||ROBOT.fistMs);
     if(t>=1){ fists.splice(i,1); continue; }
     const last=f.cells[f.cells.length-1]; if(!last) continue;
     const x=(f.x0+(last[0]-f.x0)*t)*CS+CS/2, y=(f.y0+(last[1]-f.y0)*t)*CS+CS/2;
@@ -1395,9 +1456,9 @@ function drawFists(){
 }
 function drawRobot(){
   const cx=boss.x*CS+CS/2, cy=boss.y*CS+CS/2+2, hurt=now-boss.hitAt<180;
-  const body=hurt?'#f4f4fa':'#7d8896', dark=hurt?'#ffffff':'#3c4552';
-  const charge=boss.phase==='windup'?Math.min(1,(now-boss.t0)/ROBOT.wind):0;
-  ctx.save(); ctx.translate(cx,cy+Math.sin(now/260)*1.5); ctx.scale(1.22,1.22);
+  const mk=boss.kind==='mech', body=hurt?'#f4f4fa':(mk?'#4a3a78':'#7d8896'), dark=hurt?'#ffffff':(mk?'#17112b':'#3c4552');
+  const mech=boss.kind==='mech', charge=boss.phase==='windup'?Math.min(1,(now-boss.t0)/cfg().wind):0;
+  ctx.save(); ctx.translate(cx,cy+Math.sin(now/260)*1.5); ctx.scale(mech?1.38:1.22,mech?1.38:1.22);
   ctx.fillStyle='rgba(0,0,0,.3)'; ctx.beginPath(); ctx.ellipse(0,19,13,4.5,0,0,7); ctx.fill();
   ctx.fillStyle=dark; rr(-9,13,7,6,2); ctx.fill(); rr(2,13,7,6,2); ctx.fill();
   rr(-11,-3,22,18,5); ctx.fillStyle=body; ctx.fill(); ctx.strokeStyle=dark; ctx.lineWidth=2; ctx.stroke();
@@ -1419,15 +1480,21 @@ function drawRobot(){
   ctx.lineCap='butt';
   rr(-9,-17,18,14,4); ctx.fillStyle=body; ctx.fill(); ctx.strokeStyle=dark; ctx.lineWidth=2; ctx.stroke();
   rr(-6.5,-13,13,5,2); ctx.fillStyle='#14171d'; ctx.fill();
-  const glow=boss.phase==='windup'?'#ff3b3b':'#ffcf3f';
+  const glow=boss.phase==='windup'?'#ff3b3b':(mk?'#3df2ff':'#ffcf3f');
   ctx.fillStyle=glow; circ(-3,-10.5,1.8); ctx.fill(); circ(3,-10.5,1.8); ctx.fill();
   ctx.strokeStyle=dark; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(0,-17); ctx.lineTo(0,-23); ctx.stroke();
   circ(0,-24,2.4); ctx.fillStyle=glow; ctx.fill();
+  if(mk){
+    ctx.fillStyle='#e0263c'; rr(-9.5,-15.5,19,3.4,1.5); ctx.fill();
+    const w1=Math.sin(now/120)*3, w2=Math.sin(now/150+1)*4;
+    ctx.beginPath(); ctx.moveTo(8,-14); ctx.quadraticCurveTo(17,-15+w1,25,-9+w2); ctx.lineTo(24,-4+w2); ctx.quadraticCurveTo(16,-10+w1,8,-11); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#ff3df0'; circ(0,4,1.4); ctx.fill();
+  }
   ctx.restore();
 }
 function drawBoss(){
   if(!boss||!boss.alive||boss.phase==='vanish') return;
-  if(boss.kind==='robot'){ drawRobot(); return; }
+  if(boss.kind==='robot'||boss.kind==='mech'){ drawRobot(); return; }
   const cx=boss.x*CS+CS/2, cy=boss.y*CS+CS/2+2;
   const hurt=now-boss.hitAt<180, wv=Math.sin(now/110)*3;
   const body=hurt?'#e9e9f2':'#1d2030';
@@ -1585,7 +1652,7 @@ function drawBossBar(){
     rr(x,y,Math.max(8,bw*f),bh,5); ctx.fillStyle=g; ctx.fill();
   }
   ctx.font='800 11px Nunito, system-ui, sans-serif'; ctx.textAlign='center'; ctx.fillStyle='#ffffff';
-  ctx.fillText((boss.kind==='robot'?'ROBOT MK-V  ':'NINJA SHADOW  ')+boss.hp+' / '+boss.max,W/2,y-6);
+  ctx.fillText((boss.kind==='robot'?'ROBOT MK-V  ':(boss.kind==='mech'?'MECH NINJA ZERO  ':'NINJA SHADOW  '))+boss.hp+' / '+boss.max,W/2,y-6);
 }
 function draw(){
   ctx.setTransform(2,0,0,2,0,0);
@@ -1705,6 +1772,7 @@ bind('bombBtn',placeBomb);
 bind('hintBtn',useHint);
 bind('tonicBtn',useTonic);
 bind('restartBtn',restart);
+bind('modeBtn',()=>{ if(state!=='play'||paused) return; save.easy=!save.easy; persist(); loadLevel(cur); toast(save.easy?'Easy mode: slower moles with weaker, rarer attacks.':'Hard mode: fast moles, strong bombs and whips that grow to 4 squares.'); });
 bind('shopBtn',()=>{ if(state==='play'&&!paused){ audio(); openShop('menu'); } });
 function toggleSound(){ save.muted=!save.muted; persist(); soundUi(); if(!save.muted){ audio(); sfx.coin(); } }
 $('soundBtn').addEventListener('click',e=>{ toggleSound(); if(e.currentTarget&&e.currentTarget.blur) e.currentTarget.blur(); });
